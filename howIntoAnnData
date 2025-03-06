@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Jan 12 12:27:58 2024
+
+@author: kjacek
+"""
+
+import os 
+import anndata as ann
+import scvelo as scv
+import pandas as pd
+import scipy as scp
+import numpy as np
+
+
+
+os.chdir("/mnt/D/bckpPrzedCrashem/all/Opus/redo_pilot/nk_scvelo")
+
+
+scv.settings.verbosity = 3  # show errors(0), warnings(1), info(2), hints(3)
+scv.settings.presenter_view = True  # set max width size for presenter view
+scv.settings.set_figure_params('scvelo')  # for beautified visualization
+
+#time.sleep(600)
+
+d1 = scv.read("replicate1.loom", cache=True)
+# d2 = scv.read("replicate2.loom", cache=True)
+# d3 = scv.read("replicate3.loom", cache=True)
+
+d1.obs = pd.DataFrame(d1.obs.index.values, columns=["cell_id"])
+# d2.obs = pd.DataFrame(d2.obs.index.values, columns=["cell_id"])
+# d3.obs = pd.DataFrame(d3.obs.index.values, columns=["cell_id"])
+
+
+d1.var = pd.DataFrame(d1.var.index.values, columns=["gene_id"])
+# d2.var = pd.DataFrame(d2.var.index.values, columns=["gene_id"])
+# d3.var = pd.DataFrame(d3.var.index.values, columns=["gene_id"])
+
+
+spliced = pd.DataFrame(d1.layers['spliced'].toarray())
+# df2 = pd.DataFrame(d2.layers['spliced'].toarray())
+# df3 = pd.DataFrame(d3.layers['spliced'].toarray())
+
+# spliced = pd.concat([df1,df2,df3])
+
+unspliced = pd.DataFrame(d1.layers['unspliced'].toarray())
+# df2 = pd.DataFrame(d2.layers['unspliced'].toarray())
+# df3 = pd.DataFrame(d3.layers['unspliced'].toarray())
+
+# unspliced = pd.concat([df1,df2,df3])
+
+#df1 = pd.DataFrame(d1.layers['matrix'].toarray())
+#df2 = pd.DataFrame(d2.layers['matrix'].toarray())
+#df3 = pd.DataFrame(d3.layers['matrix'].toarray())
+
+#my_matrix = pd.concat([df1,df2,df3])
+
+
+obsnum = np.array(pd.read_csv("obsnum.csv")).flatten() - 1 #because python iteraters from 0
+varnum = np.array(pd.read_csv("varnum.csv")).flatten() - 1 
+myumap = pd.read_csv("umap_nk.csv")
+mypca  = pd.read_csv("pca_nk.csv")
+vargene = pd.read_csv("vargenes.csv") #vargenes.csv
+#obsID = pd.read_csv("obsID.csv")
+clusters = pd.read_csv("clusters.csv") #  .iloc[:,1]
+#obsID.index = clusters.index
+#topvargenes= pd.read_csv("topvargenes.csv")
+
+x = np.array([True])
+x = np.repeat(x,1959,axis=0)
+x = pd.DataFrame(x, columns=["index"], index=sum(vargene.values.tolist(), [])) #create list from dataframe and then unlist it xD im rly not good at python
+
+
+my_matrix = pd.read_csv("matrixRNA_varFeatures_scVelo.csv", index_col=0).transpose() #countsarray.csv 
+my_matrix.shape
+spliced = spliced.iloc[obsnum,varnum]
+unspliced = unspliced.iloc[obsnum,varnum]
+#my_matrix = my_matrix.iloc[obsnum,varnum]
+
+
+my_matrix = scp.sparse.csr_matrix(my_matrix.values)
+spliced = scp.sparse.csr_matrix(spliced.values)
+unspliced = scp.sparse.csr_matrix(unspliced.values)
+
+alldata = ann.AnnData(my_matrix)
+alldata.layers['spliced'] = spliced
+alldata.layers['unspliced'] = unspliced
+alldata.obs = clusters.rename(columns={'.':'clusters'})
+#alldata.obs = pd.concat([clusters,obsID], axis=1).rename(columns={'obsID':'CellID','myelo.labels':'clusters'})
+#scv.pp.filter_and_normalize(alldata, min_shared_counts=20)
+#scv.pp.filter_genes(alldata, min_shared_cells=20)
+#scv.pp.normalize_per_cell(alldata)
+#scv.pp.filter_genes_dispersion(alldata)
+#scv.pp.log1p(alldata)
+####
+alldata.obsm['X_umap'] = np.array(myumap)
+alldata.obsm['X_pca'] = np.array(mypca)
