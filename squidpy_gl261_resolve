@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jan 10 17:07:28 2024
+
+@author: kjacek
+"""
+
+import squidpy as sq
+import os
+import pandas as pd
+import scanpy as sc
+import scipy as scp
+import numpy as np
+import matplotlib.pyplot as plt
+from copy import deepcopy
+
+#tutorial = sq.datasets.visium_hne_adata()
+
+
+os.chdir('/home/kjacek/squidpy_gl261_withTumor')
+
+os.getcwd()
+
+samples = ["control_1","control_2","aPD1_2","aPD1_2","CSI_1","CSI_2","CSIaPD1_1","CSIaPD1_2"]
+
+#ok so lets assume all the samples had about 50% of area covered by cancer tissue
+#so no need for normalization here
+#1 = 50% tumor,
+#2 = 50% tumor,
+#3 = 50% tumor,
+#4 = 75% tumor, 
+#5 = 50% tumor,
+#6 = 50% tumor,
+#7 = 50% tumor, 
+#8 = 50% tumor, 
+
+#as the smallest sample have ~1000cells, lets downsample all samples to this amount
+#but we have to discard aPD1_2 as it only have 634 sample (and 75% tumor area :o)
+
+#adata_subsampled = adata.copy()
+#sc.pp.subsample(adata_subsampled, n_obs=1137, random_state=42)
+i=0
+
+#%%
+for i in range(8):
+    
+    i=8
+    print(i)
+    
+    myX = pd.read_csv(str(i)+'_squidpy.csv').transpose()
+    myobs = pd.read_csv(str(i)+'_var_squidpy.csv')
+    myobs
+    myvar = pd.read_csv(str(i)+'_obs_squidpy.csv', index_col=0)
+    myvar["main"] = myvar["main"].replace({'Spp1hi Mph': 'Mph'}) #Lets merge Spp1hi with Mph
+    
+    myX = scp.sparse.csr_matrix(myX)
+    tmp = sc.AnnData(X=myX)
+    tmp
+    
+    myobs.index = myobs['gene_ids']
+    myobs.index.name = 'index'
+    
+    tmp.obs = myvar #XD
+    tmp.var = myobs #XD
+    tmp.obsm['spatial'] = myvar[['spatial_1', 'spatial_2']].to_numpy()
+    
+    
+    adata = tmp
+    library_id = samples[i-1]  # Replace with your library ID or an arbitrary identifier
+    adata.uns['spatial'] = {library_id: {'images': {}}}
+    adata.obs["main"].fillna('idk1', inplace=True) #idk how but i have one NA here
+    adata.obs["main"] = adata.obs["main"].astype('category')
+    
+    #sc.pp.subsample(adata, n_obs=2000, random_state=42) #SUBSAMPLE TO 988 SO EVERY SAMPLE IS EQUAL
+    
+    print("normalize total")
+    sc.pp.normalize_total(adata)
+    print("log transform")
+    sc.pp.log1p(adata)
+    print("scale")
+    sc.pp.scale(adata, max_value=10)
+    
+        
+    sq.pl.spatial_scatter(
+    adata, color=["Ccl5"], size=100, cmap="Reds", img=False, figsize=(8, 6)
+    )
+        
+    sq.pl.spatial_scatter(
+    adata, color=["Ccl3"], size=100, cmap="Reds", img=False, figsize=(8, 6)
+    )
+        
+    sq.pl.spatial_scatter(
+    adata, color=["Cxcl10"], size=100, cmap="Reds", img=False, figsize=(8, 6)
+    )
+    
+    sq.pl.spatial_scatter(
+    adata, color=["Adgre1"], size=100, cmap="Reds", img=False, figsize=(8, 6)
+    )
+    
+    resolution = 1.5
+    print("PCA")
+    sc.tl.pca(adata, svd_solver="arpack")
+    print("neighbors")
+    sc.pp.neighbors(adata, n_neighbors=10, n_pcs=20)
+    print("UMAP")
+    sc.tl.umap(adata)
+    print("Leiden")
+    sc.tl.leiden(adata, resolution=resolution)
+    
+    # sc.set_figure_params(figsize=(5, 5))
+    # sc.pl.umap(adata, color=["leiden"], size=15)
+    
+    # sq.pl.spatial_scatter(
+    # adata, shape=None, color="main", size=6, library_id="spatial", figsize=(10, 10)
+    # )
+
+    
+    #Calculate Lab Cluster Average Expression Signatures
+    ser_counts = adata.obs["main"].value_counts()
+    ser_counts.name = "cell counts"
+    meta_main = pd.DataFrame(ser_counts)
+    
+    # cat_name = "main"
+    # sig_main = pd.DataFrame(columns=adata.var_names, index=adata.obs[cat_name].cat.categories)
+    # for clust in adata.obs[cat_name].cat.categories:
+    #     sig_main.loc[clust] = adata[adata.obs[cat_name].isin([clust]), :].X.mean(0)
+    #     sig_main = sig_main.transpose()
+    #     main_clusters = [str(x) for x in sig_main.columns.tolist()]
+    #     sig_main.columns = main_clusters
+    #     meta_main.index = sig_main.columns.tolist()
+    #     meta_main["main"] = pd.Series(
+    #     meta_main.index.tolist(), index=meta_main.index.tolist()
+    #     )
+    
+    
+    #Neighborhood enrichment
+    sq.gr.spatial_neighbors(adata, coord_type="generic", spatial_key="spatial")
+    sq.gr.nhood_enrichment(adata, cluster_key="main")
+   # sq.pl.nhood_enrichment(
+  #  adata,
+  #  cluster_key="main",
+ #   method="average",
+  #  cmap="inferno",
+  #  vmin=-50,
+ #   vmax=100,
+  #  figsize=(5, 5),
+  #  )
+    
+    
+    
+    
+  #  zscore_nhoodEnrich = adata.uns['main_nhood_enrichment']['zscore'] ######## EXPORT THEM
+   # np.savetxt("sub_" + str(i) + "_zscore_nhoodEnrich.csv", zscore_nhoodEnrich, delimiter=",")
+    
+  #  count_nhoodEnrich = adata.uns['main_nhood_enrichment']['count']
+  #  np.savetxt("sub_" + str(i) + "_count_nhoodEnrich.csv", count_nhoodEnrich, delimiter=",")
+    
+    
+    #Interaction matrix -- spatial statistic -- it is just count_nhoodEnrich xD
+    #sq.gr.interaction_matrix(adata, cluster_key="main")
+   # sq.pl.interaction_matrix(adata, cluster_key="main", method="average", figsize=(5, 5))
+    #np.savetxt(str(i) + "_main_interactions.csv", adata.uns['main_interactions'], delimiter=",")
+    
+    
+    # Co_occurrence analysis
+    sq.gr.co_occurrence(adata, cluster_key="main")
+    sq.pl.co_occurrence(adata, cluster_key="main", clusters="CD8+ Teff", figsize=(8, 5), save="CSI_aPD1_co_occurrence_plot.pdf")
+    
+    #sq.pl.co_occurrence(adata, cluster_key="main", clusters="CD8+ Teff", figsize=(8, 5), dpi=300)
+    #sq.pl.co_occurrence(adata, cluster_key="main", clusters="Treg", figsize=(8, 5))
+    #sq.pl.co_occurrence(adata, cluster_key="main", clusters="Mph", figsize=(8, 5))
+
+#%%
+
+
+
+#Network centrality score
+sq.gr.centrality_scores(adata, "main")
+sc.set_figure_params(figsize=(20, 8))
+
+# copy centrality data to new DataFrame
+df_central = deepcopy(adata.uns["main_centrality_scores"])
+df_central.index = meta_main.index.tolist()
+
+# sort clusters based on centrality scores
+################################################
+# closeness centrality - measure of how close the group is to other nodes.
+ser_closeness = df_central["closeness_centrality"].sort_values(ascending=False)
+
+# degree centrality - fraction of non-group members connected to group members.
+# [Networkx](https://networkx.org/documentation/stable/reference/algorithms/generated/networkx.algorithms.centrality.degree_centrality.html#networkx.algorithms.centrality.degree_centrality)
+# The degree centrality for a node v is the fraction of nodes it is connected to.
+ser_degree = df_central["degree_centrality"].sort_values(ascending=False)
+
+# clustering coefficient - measure of the degree to which nodes cluster together.
+ser_cluster = df_central["average_clustering"].sort_values(ascending=False)
+
+
+inst_clusters = ser_closeness.index.tolist()[:6] #6 is Th1
+print(inst_clusters)
+sq.pl.spatial_scatter(
+    adata, groups=inst_clusters, color="main", size=80, img=False, figsize=(10, 10)
+)
+
+
+inst_clusters = ser_closeness.index.tolist()[-5:]
+print(inst_clusters)
+sq.pl.spatial_scatter(
+    adata, groups=inst_clusters, color="main", size=80, img=False, figsize=(10, 10)
+)
+
+inst_clusters = ser_degree.index.tolist()[:6]
+print(inst_clusters)
+sq.pl.spatial_scatter(
+    adata, groups=inst_clusters, color="main", size=80, img=False, figsize=(10, 10)
+)
+
+inst_clusters = ser_degree.index.tolist()[-5:]
+print(inst_clusters)
+sq.pl.spatial_scatter(
+    adata, groups=inst_clusters, color="main", size=80, img=False, figsize=(10, 10)
+)
+
+inst_clusters = ser_cluster.index.tolist()[:5]
+print(inst_clusters)
+sq.pl.spatial_scatter(
+    adata, groups=inst_clusters, color="main", size=80, img=False, figsize=(10, 10)
+)
+
+inst_clusters = ser_cluster.index.tolist()[-5:]
+print(inst_clusters)
+sq.pl.spatial_scatter(
+    adata, groups=inst_clusters, color="main", size=80, img=False, figsize=(15, 15)
+)
+
+
+
+# MORAN I Score -- autocorrelation
+sq.gr.spatial_autocorr(adata, mode="moran")
+num_view = 12
+top_autocorr = (
+    adata.uns["moranI"]["I"].sort_values(ascending=False).head(num_view).index.tolist()
+)
+bot_autocorr = (
+    adata.uns["moranI"]["I"].sort_values(ascending=True).head(num_view).index.tolist()
+)
+
+#High autocorrelation
+sq.pl.spatial_scatter(
+    adata, color=top_autocorr, size=80, cmap="Reds", img=False, figsize=(5, 5)
+)
+
+#Low autocorrelation
+sq.pl.spatial_scatter(
+    adata, color=bot_autocorr, size=80, cmap="Reds", img=False, figsize=(5, 5)
+)
+
+
+
+
+####### SPATIAL DOMAINS -- so it is like a clustering, but with spatial proximity graph as an additional imput
+# nearest neighbor graph
+sc.pp.neighbors(adata)
+nn_graph_genes = adata.obsp["connectivities"]
+# spatial proximity graph
+sq.gr.spatial_neighbors(adata)
+nn_graph_space = adata.obsp["spatial_connectivities"]
+alpha = 0.5 #strength of the spatial proximity graph
+joint_graph = (1 - alpha) * nn_graph_genes + alpha * nn_graph_space
+sc.tl.leiden(adata, adjacency=joint_graph, key_added="squidpy_domains", resolution=0.7)
+adata.uns.pop('squidpy_domains_colors') #remove old colors after changing resoultion
+sq.pl.spatial_scatter(
+    adata,  color="squidpy_domains", size=80, img=False, figsize=(15, 15)
+)
+
+
+
+######## IMPUTATION OF SINGLE-CELL RESULTS -- but it probably wont work, because we have fragments of tumor cells inside our leukocytes
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
